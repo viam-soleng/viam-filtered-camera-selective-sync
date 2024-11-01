@@ -90,9 +90,10 @@ func (s *timeSensor) Reconfigure(ctx context.Context, deps resource.Dependencies
 	return nil
 }
 
-// Readings returns "true" if within the configured hours, otherwise "false"
-func (s *timeSensor) Readings(ctx context.Context, _ map[string]interface{}) (map[string]interface{}, error) {
+// Readings returns a sync reading based on the configured hours, adjusting behavior if called by DataManager
+func (s *timeSensor) Readings(ctx context.Context, extra map[string]interface{}) (map[string]interface{}, error) {
 	currentTime := time.Now()
+
 	startTime, err := time.Parse("15:04", s.cfg.StartHours)
 	if err != nil {
 		s.logger.Errorf("Invalid start time format: %v", err)
@@ -109,10 +110,15 @@ func (s *timeSensor) Readings(ctx context.Context, _ map[string]interface{}) (ma
 	endTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), endTime.Hour(), endTime.Minute(), 0, 0, currentTime.Location())
 
 	// Check if current time is within the configured start and end hours
-	withinTimeRange := currentTime.After(startTime) && currentTime.Before(endTime)
-	return map[string]interface{}{
-		"within_time_range": withinTimeRange,
-	}, nil
+	if currentTime.Before(startTime) || currentTime.After(endTime) {
+		return map[string]interface{}{
+			"should_sync": false,
+		}, nil
+	} else {
+		return map[string]interface{}{
+			"should_sync": true,
+		}, nil
+	}
 }
 
 // DoCommand can be implemented to extend sensor functionality but returns unimplemented in this example.

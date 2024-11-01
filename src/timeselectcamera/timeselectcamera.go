@@ -193,6 +193,8 @@ func (ts timedStream) Next(ctx context.Context) (image.Image, func(), error) {
 		return ts.cameraStream.Next(ctx)
 	}
 
+	// Would be nice if there was a different flag "fromDataCaptureManagement"
+	// As opposed to "fromDataManagement" which comes from Data Capture
 	if extra != nil && extra["fromDataManagement"] == true {
 		ts.c.logger.Debug("DataManager request")
 		currentTime := time.Now()
