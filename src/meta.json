@@ -3,7 +3,7 @@
   "module_id": "viam:time-of-day-filtered-capture",
   "visibility": "public_unlisted",
   "url": "https://github.com/viam-soleng/viam-time-select-capture",
-  "description": "",
+  "description": "This project demonstrates a Viam integration for selective data capture and sync based on time-of-day settings. The Time-Selective Capture Camera captures images only within specified time windows, while the Time-Selective Sync Sensor synchronizes data to the cloud during designated hours. This setup is ideal for applications needing time-based monitoring and optimized data storage or sync.",
   "models": [
     {
       "api": "rdk:component:camera",

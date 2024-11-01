@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"viam-time-select-camera-capture/timeselectcamera"
-	"viam-time-select-camera-capture/timesyncsensor"
+	"viam-filtered-camera-selective-sync/timeselectcamera"
+	"viam-filtered-camera-selective-sync/timesyncsensor"
 
 	"go.viam.com/rdk/components/camera"
 	"go.viam.com/rdk/components/sensor"
