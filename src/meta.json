@@ -1,13 +1,17 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
   "module_id": "viam:time-of-day-filtered-capture",
-  "visibility": "private",
-  "url": "",
+  "visibility": "public_unlisted",
+  "url": "https://github.com/viam-soleng/viam-time-select-capture",
   "description": "",
   "models": [
     {
-      "api": "",
-      "model": ""
+      "api": "rdk:component:camera",
+      "model": "viam:camera:time-select-capture"
+    },
+    {
+      "api": "rdk:component:sensor",
+      "model": "viam:sensor:time-select-sync"
     }
   ],
   "entrypoint": ""

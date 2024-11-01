@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"viam-time-select-camera-capture/timeselectcamera"
+	"viam-time-select-camera-capture/timesyncsensor"
 
 	"go.viam.com/rdk/components/camera"
+	"go.viam.com/rdk/components/sensor"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/module"
 	"go.viam.com/utils"
@@ -13,7 +15,7 @@ import (
 func main() {
 	// NewLoggerFromArgs will create a logging.Logger at "DebugLevel" if
 	// "--log-level=debug" is an argument in os.Args and at "InfoLevel" otherwise.
-	utils.ContextualMain(mainWithArgs, module.NewLoggerFromArgs("My Go Time Data Capture Camera Module"))
+	utils.ContextualMain(mainWithArgs, module.NewLoggerFromArgs("My Go Time Data Capture Module"))
 }
 
 func mainWithArgs(ctx context.Context, args []string, logger logging.Logger) (err error) {
@@ -23,9 +25,14 @@ func mainWithArgs(ctx context.Context, args []string, logger logging.Logger) (er
 		return err
 	}
 
-	// Models and APIs add helpers to the registry during their init().
-	// They can then be added to the module here.
+	// Register the camera model
 	err = myMod.AddModelFromRegistry(ctx, camera.API, timeselectcamera.Model)
+	if err != nil {
+		return err
+	}
+
+	// Register the sensor model
+	err = myMod.AddModelFromRegistry(ctx, sensor.API, timesyncsensor.Model)
 	if err != nil {
 		return err
 	}
@@ -36,6 +43,7 @@ func mainWithArgs(ctx context.Context, args []string, logger logging.Logger) (er
 	if err != nil {
 		return err
 	}
+
 	<-ctx.Done()
 	return nil
 }
