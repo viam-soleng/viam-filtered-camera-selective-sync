@@ -1,7 +1,7 @@
-time: src/go.mod src/go.sum src/main.go src/timeselectcamera/timeselectcamera.go src/timesyncsensor/timesyncsensor.go
+time: *.go */*.go go.*
 	# the executable
-	cd src && go build -o ../time -ldflags "-s -w" -tags osusergo,netgo
-	file time
+	go build -o $@ -ldflags "-s -w" -tags osusergo,netgo
+	file $@
 
 module.tar.gz: time
 	# the bundled module
