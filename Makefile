@@ -3,7 +3,7 @@ time: *.go */*.go go.*
 	go build -o $@ -ldflags "-s -w" -tags osusergo,netgo
 	file $@
 
-module.tar.gz: time
+module.tar.gz: time meta.json
 	# the bundled module
 	rm -f $@
-	tar czf $@ $^
+	tar czf $@ time meta.json
