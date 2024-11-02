@@ -18,5 +18,5 @@
       "model": "viam:sensor:time-select-sync"
     }
   ],
-  "entrypoint": "src/viam-filtered-camera-selective-sync"
+  "entrypoint": "time"
 }
