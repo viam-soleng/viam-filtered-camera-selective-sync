@@ -109,16 +109,18 @@ func (s *timeSensor) Readings(ctx context.Context, extra map[string]interface{})
 	startTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), startTime.Hour(), startTime.Minute(), 0, 0, currentTime.Location())
 	endTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), endTime.Hour(), endTime.Minute(), 0, 0, currentTime.Location())
 
-	// Check if current time is within the configured start and end hours
-	if currentTime.Before(startTime) || currentTime.After(endTime) {
-		return map[string]interface{}{
-			"should_sync": false,
-		}, nil
-	} else {
-		return map[string]interface{}{
-			"should_sync": true,
-		}, nil
-	}
+	// Determine sync state
+	shouldSync := !currentTime.Before(startTime) && !currentTime.After(endTime)
+
+	// Return all relevant information without formatting for full details
+	return map[string]interface{}{
+		"should_sync":                   shouldSync,
+		"current_time":                  currentTime.Format("2006-01-02 15:04:05 MST"),
+		"start_time":                    startTime.Format("2006-01-02 15:04:05 MST"),
+		"end_time":                      endTime.Format("2006-01-02 15:04:05 MST"),
+		"currentTime.Before(startTime)": currentTime.Before(startTime),
+		"currentTime.After(endTime)":    currentTime.After(endTime),
+	}, nil
 }
 
 // DoCommand can be implemented to extend sensor functionality but returns unimplemented in this example.
