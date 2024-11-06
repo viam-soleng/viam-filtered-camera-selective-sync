@@ -116,12 +116,12 @@ func (c *timedCamera) Images(ctx context.Context) ([]camera.NamedImage, resource
 	// Retrieve extra data to check if the request is from DataManager
 	extra, ok := camera.FromContext(ctx)
 	if !ok {
-		c.logger.Infof("No extra data in context; proceeding without DataManager checks")
+		c.logger.Debugf("No extra data in context; proceeding without DataManager checks")
 		return c.cam.Images(ctx)
 	}
 
 	if extra != nil && extra["fromDataManagement"] == true {
-		c.logger.Info("DataManager request")
+		c.logger.Debug("DataManager request")
 		currentTime := time.Now()
 		startTime, err := time.Parse("15:04", c.cfg.StartHours)
 		if err != nil {
@@ -140,11 +140,11 @@ func (c *timedCamera) Images(ctx context.Context) ([]camera.NamedImage, resource
 
 		// Capture images only if the current time is within the start and end hours
 		if currentTime.After(startTime) && currentTime.Before(endTime) {
-			c.logger.Info("Capturing images within configured time range for DataManager request")
+			c.logger.Debug("Capturing images within configured time range for DataManager request")
 			images, meta, err := c.cam.Images(ctx)
 			return images, meta, err
 		} else {
-			c.logger.Info("Current time is outside configured capture hours; skipping image capture")
+			c.logger.Debug("Current time is outside configured capture hours; skipping image capture")
 			return nil, resource.ResponseMetadata{}, nil
 		}
 	}
@@ -193,11 +193,13 @@ func (ts timedStream) Next(ctx context.Context) (image.Image, func(), error) {
 		return ts.cameraStream.Next(ctx)
 	}
 
-	// Would be nice if there was a different flag "fromDataCaptureManagement"
-	// As opposed to "fromDataManagement" which comes from Data Capture
+	ts.c.logger.Debug(extra != nil && extra["fromDataManagement"] == true)
+
 	if extra != nil && extra["fromDataManagement"] == true {
 		ts.c.logger.Debug("DataManager request")
 		currentTime := time.Now()
+
+		// Parse start and end times
 		startTime, err := time.Parse("15:04", ts.c.cfg.StartHours)
 		if err != nil {
 			ts.c.logger.Errorf("Invalid start time format: %v", err)
@@ -209,13 +211,23 @@ func (ts timedStream) Next(ctx context.Context) (image.Image, func(), error) {
 			return nil, nil, err
 		}
 
+		// Handle overnight period where start_time is later in the day than end_time
+		overnight := false
+		if startTime.After(endTime) {
+			// Move endTime to the next day to handle overnight logic
+			endTime = endTime.Add(24 * time.Hour)
+			overnight = true
+		}
+
 		// Adjust start and end times to today's date for comparison
 		startTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), startTime.Hour(), startTime.Minute(), 0, 0, currentTime.Location())
 		endTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), endTime.Hour(), endTime.Minute(), 0, 0, currentTime.Location())
 
-		// Only capture images if within the configured time range
-		if currentTime.Before(startTime) || currentTime.After(endTime) {
-			ts.c.logger.Debug("Current time is outside configured capture hours; skipping image capture")
+		// Determine if current time falls within the specified range
+		inRange := !currentTime.Before(startTime) && !currentTime.After(endTime)
+		ts.c.logger.Debug("In range?", inRange)
+		if !inRange {
+			ts.c.logger.Info("Current time is outside capture hours (overnight: %v); skipping image capture", overnight)
 			return nil, nil, data.ErrNoCaptureToStore
 		}
 	}
@@ -223,6 +235,7 @@ func (ts timedStream) Next(ctx context.Context) (image.Image, func(), error) {
 	// Get the next camera image if within the time range or if the request is not from DataManager
 	img, release, err := ts.cameraStream.Next(ctx)
 	if err != nil {
+		ts.c.logger.Error("Current time is outside capture hours (overnight: %v); skipping image capture", err)
 		return nil, nil, err
 	}
 
