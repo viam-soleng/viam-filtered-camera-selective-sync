@@ -107,16 +107,15 @@ func (s *timeSensor) Readings(ctx context.Context, extra map[string]interface{})
 
 	var overnight bool = false
 
-	// Handle overnight period where start_time is later in the day than end_time
-	if startTime.After(endTime) {
-		// end_time is considered to be on the following day
-		endTime = endTime.Add(24 * time.Hour)
-		overnight = true
-	}
-
 	// Adjust start and end times to today's date for comparison
 	startTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), startTime.Hour(), startTime.Minute(), 0, 0, currentTime.Location())
 	endTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), endTime.Hour(), endTime.Minute(), 0, 0, currentTime.Location())
+
+	// Handle overnight period where start_time is later in the day than end_time
+	if startTime.After(endTime) {
+		endTime = endTime.Add(24 * time.Hour) // Adjust endTime to the next day
+		overnight = true
+	}
 
 	// Determine sync state
 	shouldSync := !currentTime.Before(startTime) && !currentTime.After(endTime)

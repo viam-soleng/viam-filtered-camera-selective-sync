@@ -111,46 +111,9 @@ func (c *timedCamera) Reconfigure(ctx context.Context, deps resource.Dependencie
 	return nil
 }
 
-// Images retrieves images if within the configured time range and from DataManager
+// Images does nothing.
 func (c *timedCamera) Images(ctx context.Context) ([]camera.NamedImage, resource.ResponseMetadata, error) {
-	// Retrieve extra data to check if the request is from DataManager
-	extra, ok := camera.FromContext(ctx)
-	if !ok {
-		c.logger.Debugf("No extra data in context; proceeding without DataManager checks")
-		return c.cam.Images(ctx)
-	}
-
-	if extra != nil && extra["fromDataManagement"] == true {
-		c.logger.Debug("DataManager request")
-		currentTime := time.Now()
-		startTime, err := time.Parse("15:04", c.cfg.StartHours)
-		if err != nil {
-			c.logger.Errorf("Invalid start time format: %v", err)
-			return nil, resource.ResponseMetadata{}, err
-		}
-		endTime, err := time.Parse("15:04", c.cfg.EndHours)
-		if err != nil {
-			c.logger.Errorf("Invalid end time format: %v", err)
-			return nil, resource.ResponseMetadata{}, err
-		}
-
-		// Adjust start and end times to today's date for comparison
-		startTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), startTime.Hour(), startTime.Minute(), 0, 0, currentTime.Location())
-		endTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), endTime.Hour(), endTime.Minute(), 0, 0, currentTime.Location())
-
-		// Capture images only if the current time is within the start and end hours
-		if currentTime.After(startTime) && currentTime.Before(endTime) {
-			c.logger.Debug("Capturing images within configured time range for DataManager request")
-			images, meta, err := c.cam.Images(ctx)
-			return images, meta, err
-		} else {
-			c.logger.Debug("Current time is outside configured capture hours; skipping image capture")
-			return nil, resource.ResponseMetadata{}, nil
-		}
-	}
-
-	// If the request is not from DataManager, proceed with standard capture logic
-	return c.cam.Images(ctx)
+	return nil, resource.ResponseMetadata{}, errUnimplemented
 }
 
 // NextPointCloud returns the next PointCloud from the camera, or will error if not supported
@@ -213,16 +176,16 @@ func (ts timedStream) Next(ctx context.Context) (image.Image, func(), error) {
 
 		// Handle overnight period where start_time is later in the day than end_time
 		overnight := false
-		if startTime.After(endTime) {
-			// Move endTime to the next day to handle overnight logic
-			endTime = endTime.Add(24 * time.Hour)
-			overnight = true
-		}
 
 		// Adjust start and end times to today's date for comparison
 		startTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), startTime.Hour(), startTime.Minute(), 0, 0, currentTime.Location())
 		endTime = time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), endTime.Hour(), endTime.Minute(), 0, 0, currentTime.Location())
 
+		// Handle overnight period where start_time is later in the day than end_time
+		if startTime.After(endTime) {
+			endTime = endTime.Add(24 * time.Hour) // Adjust endTime to the next day
+			overnight = true
+		}
 		// Determine if current time falls within the specified range
 		inRange := !currentTime.Before(startTime) && !currentTime.After(endTime)
 		ts.c.logger.Debug("In range?", inRange)
