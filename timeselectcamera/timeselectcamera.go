@@ -23,8 +23,8 @@ type ScheduleHours struct {
 
 // DateRange defines an explicit start and end timestamp (RFC3339)
 type DateRange struct {
-	Start time.Time `json:"start"`
-	End   time.Time `json:"end"`
+	Start string `json:"start"`
+	End   string `json:"end"`
 }
 
 // Config holds configuration for time-select-capture camera
@@ -46,8 +46,6 @@ func (cfg *Config) Validate(path string) ([]string, error) {
 		return nil, utils.NewConfigValidationFieldRequiredError(path, "camera")
 	}
 
-	// Determine which modes are present
-	// Hours only if both start and end hours provided
 	hours := cfg.StartHours != "" && cfg.EndHours != ""
 	weekly := len(cfg.WeeklySchedule) > 0
 	dates := len(cfg.Schedule) > 0
@@ -86,14 +84,16 @@ func (cfg *Config) Validate(path string) ([]string, error) {
 
 	if dates {
 		for i, dr := range cfg.Schedule {
-			if dr.Start.IsZero() {
-				return nil, fmt.Errorf("%s: schedule[%d].Start is missing or invalid", path, i)
+			start, err := time.Parse(time.RFC3339, dr.Start)
+			if err != nil {
+				return nil, fmt.Errorf("%s: schedule[%d].start invalid timestamp %q: %w", path, i, dr.Start, err)
 			}
-			if dr.End.IsZero() {
-				return nil, fmt.Errorf("%s: schedule[%d].End is missing or invalid", path, i)
+			end, err := time.Parse(time.RFC3339, dr.End)
+			if err != nil {
+				return nil, fmt.Errorf("%s: schedule[%d].end invalid timestamp %q: %w", path, i, dr.End, err)
 			}
-			if dr.Start.After(dr.End) {
-				return nil, fmt.Errorf("%s: schedule[%d].Start must be before End", path, i)
+			if !start.Before(end) {
+				return nil, fmt.Errorf("%s: schedule[%d] start must be before end", path, i)
 			}
 		}
 	}
@@ -124,13 +124,17 @@ type timedCamera struct {
 }
 
 // newTimedCamera constructs and validates a timedCamera
-func newTimedCamera(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (camera.Camera, error) {
+func newTimedCamera(
+	ctx context.Context,
+	deps resource.Dependencies,
+	rawConf resource.Config,
+	logger logging.Logger,
+) (camera.Camera, error) {
 	conf, err := resource.NativeConfig[*Config](rawConf)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validate config
 	if _, err := conf.Validate(rawConf.ResourceName().String()); err != nil {
 		return nil, err
 	}
@@ -141,32 +145,41 @@ func newTimedCamera(ctx context.Context, deps resource.Dependencies, rawConf res
 	}
 
 	_, cancel := context.WithCancel(ctx)
-	return &timedCamera{name: rawConf.ResourceName(), logger: logger, cfg: conf, inner: innerCam, cancel: cancel}, nil
+	return &timedCamera{
+		name:   rawConf.ResourceName(),
+		logger: logger,
+		cfg:    conf,
+		inner:  innerCam,
+		cancel: cancel,
+	}, nil
 }
 
-func (c *timedCamera) Reconfigure(ctx context.Context, deps resource.Dependencies, rawConf resource.Config) error {
+func (c *timedCamera) Reconfigure(
+	ctx context.Context,
+	deps resource.Dependencies,
+	rawConf resource.Config,
+) error {
 	conf, err := resource.NativeConfig[*Config](rawConf)
 	if err != nil {
 		c.logger.Warnf("%s: reconfigure parse error: %v", rawConf.ResourceName(), err)
 		return err
 	}
-	// Validate config
 	if _, err := conf.Validate(rawConf.ResourceName().String()); err != nil {
 		return err
 	}
+
 	c.cfg = conf
 	c.name = rawConf.ResourceName()
-
-	innerCam, err := camera.FromDependencies(deps, conf.Camera)
-	if err != nil {
-		return err
-	}
-	c.inner = innerCam
-	return nil
+	c.inner, err = camera.FromDependencies(deps, conf.Camera)
+	return err
 }
 
 // Image implements the gating logic around the inner camera
-func (c *timedCamera) Image(ctx context.Context, mimeType string, extra map[string]interface{}) ([]byte, camera.ImageMetadata, error) {
+func (c *timedCamera) Image(
+	ctx context.Context,
+	mimeType string,
+	extra map[string]interface{},
+) ([]byte, camera.ImageMetadata, error) {
 	if extra != nil && extra["fromDataManagement"] == true {
 		now := time.Now()
 		if !c.inWindow(now) {
@@ -208,7 +221,9 @@ func (c *timedCamera) inWindow(t time.Time) bool {
 
 	// Explicit date ranges
 	for _, dr := range c.cfg.Schedule {
-		if !t.Before(dr.Start) && !t.After(dr.End) {
+		start, _ := time.Parse(time.RFC3339, dr.Start)
+		end, _ := time.Parse(time.RFC3339, dr.End)
+		if !t.Before(start) && !t.After(end) {
 			return true
 		}
 	}
