@@ -183,7 +183,7 @@ func (c *timedCamera) Image(
 	if extra != nil && extra["fromDataManagement"] == true {
 		now := time.Now()
 		if !c.inWindow(now) {
-			c.logger.Infof("%s: time %v outside window, skipping", c.name, now)
+			c.logger.Debugf("%s: time %v outside window, skipping", c.name, now)
 			return nil, camera.ImageMetadata{}, ErrNoCapture
 		}
 	}
