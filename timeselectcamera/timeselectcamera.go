@@ -12,6 +12,7 @@ import (
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/pointcloud"
 	"go.viam.com/rdk/resource"
+	"go.viam.com/rdk/spatialmath"
 	"go.viam.com/utils"
 )
 
@@ -41,9 +42,9 @@ type Config struct {
 }
 
 // Validate ensures the configuration is correct and returns the camera dependency
-func (cfg *Config) Validate(path string) ([]string, error) {
+func (cfg *Config) Validate(path string) ([]string, []string, error) {
 	if cfg.Camera == "" {
-		return nil, utils.NewConfigValidationFieldRequiredError(path, "camera")
+		return nil, nil, utils.NewConfigValidationFieldRequiredError(path, "camera")
 	}
 
 	hours := cfg.StartHours != "" && cfg.EndHours != ""
@@ -51,15 +52,15 @@ func (cfg *Config) Validate(path string) ([]string, error) {
 	dates := len(cfg.Schedule) > 0
 
 	if !(hours || weekly || dates) {
-		return nil, fmt.Errorf("%s: must specify at least one of start_hours/end_hours, weekly_schedule, or schedule", path)
+		return nil, nil, fmt.Errorf("%s: must specify at least one of start_hours/end_hours, weekly_schedule, or schedule", path)
 	}
 
 	if hours {
 		if _, err := time.Parse("15:04", cfg.StartHours); err != nil {
-			return nil, fmt.Errorf("%s: invalid start_hours %q: %w", path, cfg.StartHours, err)
+			return nil, nil, fmt.Errorf("%s: invalid start_hours %q: %w", path, cfg.StartHours, err)
 		}
 		if _, err := time.Parse("15:04", cfg.EndHours); err != nil {
-			return nil, fmt.Errorf("%s: invalid end_hours %q: %w", path, cfg.EndHours, err)
+			return nil, nil, fmt.Errorf("%s: invalid end_hours %q: %w", path, cfg.EndHours, err)
 		}
 	}
 
@@ -68,16 +69,16 @@ func (cfg *Config) Validate(path string) ([]string, error) {
 		for _, day := range days {
 			sh, ok := cfg.WeeklySchedule[day]
 			if !ok {
-				return nil, fmt.Errorf("%s: missing weekly_schedule for %s", path, day)
+				return nil, nil, fmt.Errorf("%s: missing weekly_schedule for %s", path, day)
 			}
 			if sh.Start == "" || sh.End == "" {
-				return nil, fmt.Errorf("%s: weekly_schedule[%s] must have start and end", path, day)
+				return nil, nil, fmt.Errorf("%s: weekly_schedule[%s] must have start and end", path, day)
 			}
 			if _, err := time.Parse("15:04:05", sh.Start); err != nil {
-				return nil, fmt.Errorf("%s: invalid weekly_schedule[%s].Start %q: %w", path, day, sh.Start, err)
+				return nil, nil, fmt.Errorf("%s: invalid weekly_schedule[%s].Start %q: %w", path, day, sh.Start, err)
 			}
 			if _, err := time.Parse("15:04:05", sh.End); err != nil {
-				return nil, fmt.Errorf("%s: invalid weekly_schedule[%s].End %q: %w", path, day, sh.End, err)
+				return nil, nil, fmt.Errorf("%s: invalid weekly_schedule[%s].End %q: %w", path, day, sh.End, err)
 			}
 		}
 	}
@@ -86,19 +87,20 @@ func (cfg *Config) Validate(path string) ([]string, error) {
 		for i, dr := range cfg.Schedule {
 			start, err := time.Parse(time.RFC3339, dr.Start)
 			if err != nil {
-				return nil, fmt.Errorf("%s: schedule[%d].start invalid timestamp %q: %w", path, i, dr.Start, err)
+				return nil, nil, fmt.Errorf("%s: schedule[%d].start invalid timestamp %q: %w", path, i, dr.Start, err)
 			}
 			end, err := time.Parse(time.RFC3339, dr.End)
 			if err != nil {
-				return nil, fmt.Errorf("%s: schedule[%d].end invalid timestamp %q: %w", path, i, dr.End, err)
+				return nil, nil, fmt.Errorf("%s: schedule[%d].end invalid timestamp %q: %w", path, i, dr.End, err)
 			}
 			if !start.Before(end) {
-				return nil, fmt.Errorf("%s: schedule[%d] start must be before end", path, i)
+				return nil, nil, fmt.Errorf("%s: schedule[%d] start must be before end", path, i)
 			}
 		}
 	}
 
-	return []string{cfg.Camera}, nil
+	// return dependencies (the camera) and no extra attributes
+	return []string{cfg.Camera}, nil, nil
 }
 
 var (
@@ -135,7 +137,7 @@ func newTimedCamera(
 		return nil, err
 	}
 
-	if _, err := conf.Validate(rawConf.ResourceName().String()); err != nil {
+	if _, _, err := conf.Validate(rawConf.ResourceName().String()); err != nil {
 		return nil, err
 	}
 
@@ -164,7 +166,7 @@ func (c *timedCamera) Reconfigure(
 		c.logger.Warnf("%s: reconfigure parse error: %v", rawConf.ResourceName(), err)
 		return err
 	}
-	if _, err := conf.Validate(rawConf.ResourceName().String()); err != nil {
+	if _, _, err := conf.Validate(rawConf.ResourceName().String()); err != nil {
 		return err
 	}
 
@@ -174,20 +176,48 @@ func (c *timedCamera) Reconfigure(
 	return err
 }
 
-// Image implements the gating logic around the inner camera
+// Images implements the gating logic around the inner camera
+func (c *timedCamera) Images(
+	ctx context.Context,
+	filterSourceNames []string,
+	extra map[string]interface{},
+) ([]camera.NamedImage, resource.ResponseMetadata, error) {
+	now := time.Now()
+
+	// Only enforce gating if called from Data Manager
+	if extra != nil && extra["fromDataManagement"] == true {
+		if !c.inWindow(now) {
+			c.logger.Debugf("%s: time %v outside window, skipping", c.name, now)
+			return nil, resource.ResponseMetadata{}, ErrNoCapture
+		}
+	}
+
+	// Delegate to inner camera’s Images implementation
+	return c.inner.Images(ctx, filterSourceNames, extra)
+}
+
+// Image is kept temporarily to satisfy the camera.Camera interface.
+// It delegates to Images() and returns the first frame only.
 func (c *timedCamera) Image(
 	ctx context.Context,
 	mimeType string,
 	extra map[string]interface{},
 ) ([]byte, camera.ImageMetadata, error) {
-	if extra != nil && extra["fromDataManagement"] == true {
-		now := time.Now()
-		if !c.inWindow(now) {
-			c.logger.Debugf("%s: time %v outside window, skipping", c.name, now)
-			return nil, camera.ImageMetadata{}, ErrNoCapture
-		}
+	imgs, _, err := c.Images(ctx, nil, extra)
+	if err != nil {
+		return nil, camera.ImageMetadata{}, err
 	}
-	return c.inner.Image(ctx, mimeType, extra)
+	if len(imgs) == 0 {
+		return nil, camera.ImageMetadata{}, ErrNoCapture
+	}
+	ni := imgs[0]
+	data, err := ni.Bytes(ctx)
+	if err != nil {
+		return nil, camera.ImageMetadata{}, err
+	}
+	return data, camera.ImageMetadata{
+		MimeType: ni.MimeType(),
+	}, nil
 }
 
 // inWindow checks if t is within any configured window
@@ -231,11 +261,6 @@ func (c *timedCamera) inWindow(t time.Time) bool {
 	return false
 }
 
-// Images is unimplemented
-func (c *timedCamera) Images(ctx context.Context) ([]camera.NamedImage, resource.ResponseMetadata, error) {
-	return nil, resource.ResponseMetadata{}, ErrUnimplemented
-}
-
 // NextPointCloud is unimplemented
 func (c *timedCamera) NextPointCloud(ctx context.Context) (pointcloud.PointCloud, error) {
 	return nil, ErrUnimplemented
@@ -255,6 +280,11 @@ func (c *timedCamera) Close(ctx context.Context) error {
 // Name returns the resource name
 func (c *timedCamera) Name() resource.Name {
 	return c.name
+}
+
+// Geometries is unimplemented
+func (c *timedCamera) Geometries(ctx context.Context, extra map[string]interface{}) ([]spatialmath.Geometry, error) {
+	return nil, ErrUnimplemented
 }
 
 // Properties proxies to inner camera and disables PCD

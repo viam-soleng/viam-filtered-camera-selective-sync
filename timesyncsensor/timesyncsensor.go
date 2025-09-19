@@ -38,20 +38,21 @@ type timeSensor struct {
 }
 
 // Validate configuration and return implicit dependencies
-func (cfg *Config) Validate(path string) ([]string, error) {
+func (cfg *Config) Validate(path string) ([]string, []string, error) {
 	if cfg.StartHours == "" || cfg.EndHours == "" {
-		return nil, fmt.Errorf("start_hours and end_hours are required for component %q", path)
+		return nil, nil, fmt.Errorf("start_hours and end_hours are required for component %q", path)
 	}
 
 	// Validate time format
 	if _, err := time.Parse("15:04", cfg.StartHours); err != nil {
-		return nil, fmt.Errorf("invalid start_hours format (HH:MM) for component %q", path)
+		return nil, nil, fmt.Errorf("invalid start_hours format (HH:MM) for component %q", path)
 	}
 	if _, err := time.Parse("15:04", cfg.EndHours); err != nil {
-		return nil, fmt.Errorf("invalid end_hours format (HH:MM) for component %q", path)
+		return nil, nil, fmt.Errorf("invalid end_hours format (HH:MM) for component %q", path)
 	}
 
-	return []string{}, nil
+	// no dependencies, no attributes
+	return []string{}, []string{}, nil
 }
 
 // Constructor for timeSensor
