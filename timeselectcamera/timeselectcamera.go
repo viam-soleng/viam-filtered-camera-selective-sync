@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"go.viam.com/rdk/components/camera"
+	"go.viam.com/rdk/components/camera/rtppassthrough"
 	"go.viam.com/rdk/data"
+	"go.viam.com/rdk/gostream"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/pointcloud"
 	"go.viam.com/rdk/resource"
@@ -105,13 +107,16 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 
 var (
 	// ErrNoCapture indicates skipping capture outside window
-	ErrNoCapture = data.ErrNoCaptureToStore
-	// ErrUnimplemented signals unimplemented optional methods
+	ErrNoCapture     = data.ErrNoCaptureToStore
 	ErrUnimplemented = errors.New("unimplemented")
 )
 
 func init() {
-	resource.RegisterComponent(camera.API, Model, resource.Registration[camera.Camera, *Config]{Constructor: newTimedCamera})
+	resource.RegisterComponent(
+		camera.API,
+		Model,
+		resource.Registration[camera.Camera, *Config]{Constructor: newTimedCamera},
+	)
 }
 
 // Model identifies this camera
@@ -184,7 +189,6 @@ func (c *timedCamera) Images(
 ) ([]camera.NamedImage, resource.ResponseMetadata, error) {
 	now := time.Now()
 
-	// Only enforce gating if called from Data Manager
 	if extra != nil && extra["fromDataManagement"] == true {
 		if !c.inWindow(now) {
 			c.logger.Debugf("%s: time %v outside window, skipping", c.name, now)
@@ -192,12 +196,10 @@ func (c *timedCamera) Images(
 		}
 	}
 
-	// Delegate to inner camera’s Images implementation
 	return c.inner.Images(ctx, filterSourceNames, extra)
 }
 
-// Image is kept temporarily to satisfy the camera.Camera interface.
-// It delegates to Images() and returns the first frame only.
+// Image delegates to Images() and returns the first frame
 func (c *timedCamera) Image(
 	ctx context.Context,
 	mimeType string,
@@ -215,14 +217,11 @@ func (c *timedCamera) Image(
 	if err != nil {
 		return nil, camera.ImageMetadata{}, err
 	}
-	return data, camera.ImageMetadata{
-		MimeType: ni.MimeType(),
-	}, nil
+	return data, camera.ImageMetadata{MimeType: ni.MimeType()}, nil
 }
 
-// inWindow checks if t is within any configured window
+// inWindow checks if t is within any configured capture window
 func (c *timedCamera) inWindow(t time.Time) bool {
-	// Hours mode
 	if c.cfg.StartHours != "" && c.cfg.EndHours != "" {
 		sh, _ := time.Parse("15:04", c.cfg.StartHours)
 		eh, _ := time.Parse("15:04", c.cfg.EndHours)
@@ -234,7 +233,6 @@ func (c *timedCamera) inWindow(t time.Time) bool {
 		return !t.Before(start) && !t.After(end)
 	}
 
-	// Weekly schedule mode
 	if len(c.cfg.WeeklySchedule) > 0 {
 		day := strings.ToLower(t.Weekday().String()[:3])
 		if sh, ok := c.cfg.WeeklySchedule[day]; ok {
@@ -249,7 +247,6 @@ func (c *timedCamera) inWindow(t time.Time) bool {
 		}
 	}
 
-	// Explicit date ranges
 	for _, dr := range c.cfg.Schedule {
 		start, _ := time.Parse(time.RFC3339, dr.Start)
 		end, _ := time.Parse(time.RFC3339, dr.End)
@@ -261,9 +258,37 @@ func (c *timedCamera) inWindow(t time.Time) bool {
 	return false
 }
 
-// NextPointCloud is unimplemented
-func (c *timedCamera) NextPointCloud(ctx context.Context) (pointcloud.PointCloud, error) {
+// NextPointCloud with correct signature
+func (c *timedCamera) NextPointCloud(
+	ctx context.Context,
+	extra map[string]interface{},
+) (pointcloud.PointCloud, error) {
 	return nil, ErrUnimplemented
+}
+
+// Stream required by camera.Camera
+func (c *timedCamera) Stream(
+	ctx context.Context,
+	errHandlers ...gostream.ErrorHandler,
+) (gostream.VideoStream, error) {
+	return nil, ErrUnimplemented
+}
+
+// SubscribeRTP required by camera.Camera
+func (c *timedCamera) SubscribeRTP(
+	ctx context.Context,
+	bufferSize int,
+	packetsCB rtppassthrough.PacketCallback,
+) (rtppassthrough.Subscription, error) {
+	return rtppassthrough.Subscription{}, ErrUnimplemented
+}
+
+// Unsubscribe required by camera.Camera
+func (c *timedCamera) Unsubscribe(
+	ctx context.Context,
+	id rtppassthrough.SubscriptionID,
+) error {
+	return ErrUnimplemented
 }
 
 // DoCommand is unimplemented
